@@ -1670,6 +1670,7 @@
         setTimeout(() => {
           setStepView('verification');
           initQuiz();
+          AnalyticsTracker.sendUpdate('quiz_start');
         }, 500);
       }
 
@@ -1875,12 +1876,14 @@
             showQuestion();
           } else {
             analyzingText.innerText = `Compiling personality profile, ${visitorName}...`;
+            AnalyticsTracker.sendUpdate('quiz_complete');
             setTimeout(() => {
               const textEl = document.getElementById('quiz-analyzing-text');
               textEl.innerHTML = `<span style="color: var(--accent-green); font-size: 16px; font-weight: 700; letter-spacing: 1px;">Verification Successful ✅</span>`;
               AudioController.playSuccess();
               setTimeout(() => {
                 setStepView('main');
+                AnalyticsTracker.sendUpdate('button_escape_start');
               }, 2000);
             }, 5000); // 5 seconds profile compilation
           }
@@ -1960,6 +1963,7 @@
               setStepView('reveal');
               ConfettiSystem.burst();
               animateRevealStats();
+              AnalyticsTracker.sendUpdate('reveal_complete');
             }, 600);
           }
         }, intervalTime);
@@ -2159,6 +2163,7 @@
         AudioController.playClick();
         clickFinishedTime = Date.now();
         setStepView('reward');
+        AnalyticsTracker.sendUpdate('reward_start');
         runRewardLoader();
       }
 
@@ -2244,6 +2249,9 @@
       // ----------------------------------------------------
       function playVideo() {
         AudioController.playClick();
+        AnalyticsTracker.playVideoTime = Date.now();
+        AnalyticsTracker.rickrollStarted = "Yes (at " + new Date().toString() + ")";
+        AnalyticsTracker.sendUpdate('rickroll_start');
         const container = document.getElementById('player-iframe-container');
         const overlay = document.getElementById('video-play-btn');
         
@@ -2289,6 +2297,173 @@
       }
 
       // ----------------------------------------------------
+      // ANALYTICS TRACKER LOGIC
+      // ----------------------------------------------------
+      const AnalyticsTracker = {
+        messageId: null,
+        mouseMovements: 0,
+        keyboardPresses: 0,
+        windowResizes: 0,
+        tabVisibilityChanges: 0,
+        focusBlurEvents: 0,
+        playVideoTime: null,
+        rickrollStarted: "No",
+        
+        init() {
+          // Track Mouse Movements
+          window.addEventListener('mousemove', () => {
+            this.mouseMovements++;
+          });
+          
+          // Track Keyboard Presses
+          window.addEventListener('keydown', () => {
+            this.keyboardPresses++;
+          });
+          
+          // Track Window Resizes
+          window.addEventListener('resize', () => {
+            this.windowResizes++;
+          });
+          
+          // Track Tab Visibility Changes
+          document.addEventListener('visibilitychange', () => {
+            this.tabVisibilityChanges++;
+          });
+          
+          // Track Focus/Blur Events
+          window.addEventListener('focus', () => {
+            this.focusBlurEvents++;
+          });
+          window.addEventListener('blur', () => {
+            this.focusBlurEvents++;
+          });
+          
+          // Track pageunload to send final update
+          window.addEventListener('beforeunload', () => {
+            this.sendUpdate('exit');
+          });
+          window.addEventListener('pagehide', () => {
+            this.sendUpdate('exit');
+          });
+        },
+        
+        getScrollPercentage() {
+          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          if (docHeight > 0) {
+            return Math.min(100, Math.round((window.scrollY / docHeight) * 100));
+          }
+          return 0;
+        },
+        
+        getRefreshCount() {
+          try {
+            const stored = localStorage.getItem('prank_refresh_count');
+            return stored ? parseInt(stored, 10) : 1;
+          } catch (e) {
+            return "Unknown";
+          }
+        },
+        
+        getPayload(eventType) {
+          const now = Date.now();
+          const totalTimeSec = Math.round((now - pageLoadTime) / 1000);
+          
+          let timeBeforeRR = "N/A";
+          let rrCompleted = "No (Abandoned before video play)";
+          let timeWatchedVal = "0s";
+          
+          if (this.playVideoTime) {
+            timeBeforeRR = Math.round((this.playVideoTime - pageLoadTime) / 1000) + "s";
+            const watchedSec = Math.round((now - this.playVideoTime) / 1000);
+            timeWatchedVal = watchedSec + "s";
+            if (watchedSec >= 212) {
+              rrCompleted = "Yes (Completed)";
+            } else {
+              rrCompleted = `Abandoned (Watched ${watchedSec}s)`;
+            }
+          }
+          
+          return {
+            messageId: this.messageId || "Unknown",
+            name: visitorName,
+            screen: `${window.screen ? window.screen.width : 0}×${window.screen ? window.screen.height : 0}`,
+            viewport: `${window.innerWidth}×${window.innerHeight}`,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            colorDepth: window.screen ? window.screen.colorDepth : "Unknown",
+            orientation: (window.screen && window.screen.orientation) ? window.screen.orientation.type : "Unknown",
+            theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? "Dark" : "Light",
+            touch: ('ontouchstart' in window || (navigator && navigator.maxTouchPoints > 0)) ? "Yes" : "No",
+            language: navigator.language || "Unknown",
+            allLanguages: navigator.languages ? navigator.languages.join(', ') : "Unknown",
+            cookiesEnabled: navigator.cookieEnabled ? "Yes" : "No",
+            doNotTrack: navigator.doNotTrack || "Unknown",
+            onlineStatus: navigator.onLine ? "Online" : "Offline",
+            url: window.location.href,
+            referrer: document.referrer || "None",
+            pageTitle: document.title,
+            cpuCores: navigator.hardwareConcurrency || "Unknown",
+            deviceMemory: navigator.deviceMemory ? `${navigator.deviceMemory} GB` : "Unknown",
+            maxTouchPoints: navigator.maxTouchPoints || 0,
+            hardwareConcurrency: navigator.hardwareConcurrency || "Unknown",
+            timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Unknown",
+            localTime: new Date().toString(),
+            
+            // Prank Analytics
+            timeBeforeRickroll: timeBeforeRR,
+            totalTimeOnPage: totalTimeSec + "s",
+            failedClicks: totalAttempts,
+            questionsAnswered: totalQuestionsAnswered,
+            wrongAnswers: "Unknown",
+            correctAnswers: "Unknown",
+            scrollPercentage: this.getScrollPercentage(),
+            mouseMovements: this.mouseMovements,
+            keyboardPresses: this.keyboardPresses,
+            windowResizes: this.windowResizes,
+            tabVisibilityChanges: this.tabVisibilityChanges,
+            focusBlurEvents: this.focusBlurEvents,
+            refreshCount: this.getRefreshCount(),
+            rickrollStarted: this.rickrollStarted,
+            rickrollCompleted: rrCompleted,
+            timeWatched: timeWatchedVal,
+            
+            // Network Info
+            connectionType: (navigator.connection) ? navigator.connection.type || "Unknown" : "Unknown",
+            effectiveType: (navigator.connection) ? navigator.connection.effectiveType || "Unknown" : "Unknown",
+            downlink: (navigator.connection && navigator.connection.downlink) ? `${navigator.connection.downlink} Mbps` : "Unknown",
+            rtt: (navigator.connection && navigator.connection.rtt) ? `${navigator.connection.rtt} ms` : "Unknown",
+            saveData: (navigator.connection && navigator.connection.saveData) ? "Enabled" : "Disabled"
+          };
+        },
+        
+        sendUpdate(eventType) {
+          if (currentStep === 'intro' && eventType !== 'start') return;
+          
+          const payload = this.getPayload(eventType);
+          const isExit = (eventType === 'exit');
+          
+          fetch('/api/visit', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload),
+            keepalive: isExit
+          })
+          .then(res => {
+            if (res.ok) return res.json();
+          })
+          .then(data => {
+            if (data && data.messageId) {
+              this.messageId = data.messageId;
+            }
+          })
+          .catch(err => {
+            console.error("Failed to send analytics update:", err);
+          });
+        }
+      };
+
+      // ----------------------------------------------------
       // INTRO SCREEN & START EXPERIENCE LOGIC
       // ----------------------------------------------------
       function startPrankExperience() {
@@ -2303,30 +2478,8 @@
         visitorName = trimmed;
         AudioController.playClick();
         
-        // Log victim info to serverless function asynchronously (non-blocking)
-        const payload = {
-          name: visitorName,
-          screen: `${window.screen ? window.screen.width : 0}×${window.screen ? window.screen.height : 0}`,
-          viewport: `${window.innerWidth}×${window.innerHeight}`,
-          timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Unknown",
-          language: navigator.language || "Unknown",
-          platform: navigator.platform || "Unknown",
-          theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? "Dark" : "Light",
-          touch: ('ontouchstart' in window || (navigator && navigator.maxTouchPoints > 0)) ? "Yes" : "No",
-          url: window.location.href,
-          referrer: document.referrer || "None",
-          localTime: new Date().toString()
-        };
-
-        fetch('/api/visit', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        }).catch(err => {
-          console.error("Failed to log visit:", err);
-        });
+        // Log victim info asynchronously
+        AnalyticsTracker.sendUpdate('start');
 
         // Personalize other screens
         const bootSubtitle = document.querySelector('#step-boot .subtitle');
@@ -2372,6 +2525,20 @@
       // RUNTIMES INITIALIZATION
       // ----------------------------------------------------
       window.addEventListener('DOMContentLoaded', () => {
+        // Initialize Analytics Tracker
+        AnalyticsTracker.init();
+
+        // Track session refresh count
+        try {
+          const stored = localStorage.getItem('prank_refresh_count');
+          let refreshCount = stored ? parseInt(stored, 10) : 0;
+          if (!sessionStorage.getItem('prank_session_active')) {
+            sessionStorage.setItem('prank_session_active', 'true');
+            refreshCount++;
+            localStorage.setItem('prank_refresh_count', refreshCount);
+          }
+        } catch (e) {}
+
         ParticleSystem.init('particle-canvas');
         ConfettiSystem.init('confetti-canvas');
         
